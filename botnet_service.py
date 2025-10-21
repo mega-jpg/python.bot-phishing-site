@@ -16,7 +16,7 @@ import websockets
 import os
 import requests
 
-from botnet_scrape_sjc_service import SJCScrapeService
+from botnet_phishing_site_service import SJCScrapeService
 
 async def get_user_by_username_async(username: str) -> Dict:
     """Get user by username - Direct database access to avoid circular import"""
