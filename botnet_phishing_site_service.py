@@ -35,23 +35,33 @@ class SJCScrapeService:
         # Biến lưu giá SJC trước đó để so sánh
         self._last_special_mua = None
         self._last_special_ban = None
+        # Server instance để quản lý
+        self.current_server = None
 
     # Removed start_sjc_cronjob_thread logic from main program. Method is retained for manual use if needed.
 
-    async def scrape_sjc(self) -> Dict:
-        """Crawl SJC gold price from webgia.com and return status via backend logs"""
+    async def scrape_sjc(self, url: str = None) -> Dict:
+        """Scrape HTML from a given URL and serve it on port 5001. Returns title, url, and frontend_url."""
         try:
             print(f"[SJC] scrape_sjc called. (thread: {threading.current_thread().name})")
-            print("🔄 Starting SJC price scraping from webgia.com...")
+            print(f"🔄 Starting SJC price scraping from {url or 'default'}...")
 
-            # Use Selenium for JavaScript-rendered content
+            # Shutdown any existing server immediately
+            if self.current_server:
+                print("[Frontend] Shutting down existing server...")
+                self.current_server.shutdown()
+                self.current_server = None
+
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import WebDriverWait
             from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.chrome.service import Service as ChromeService
             from webdriver_manager.chrome import ChromeDriverManager
             from parsel import Selector
+            import shutil
+            from http.server import BaseHTTPRequestHandler, HTTPServer
 
             # Setup Chrome options
             options = Options()
@@ -59,49 +69,67 @@ class SJCScrapeService:
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--window-size=1920,1080')
-            options.add_argument('--disable-gpu')
+            # options.add_argument('--disable-gpu')  # Deprecated in modern Chrome
 
-            print("🌐 Initializing Chrome WebDriver...")
-            from selenium.webdriver.chrome.service import Service as ChromeService
-            import shutil
-            
-            # Use system chromedriver in Replit environment
             chromedriver_path = shutil.which('chromedriver')
             if chromedriver_path:
                 print(f"Using system chromedriver: {chromedriver_path}")
                 service = ChromeService(executable_path=chromedriver_path)
             else:
-                # Fallback to ChromeDriverManager if not in Replit
-                from webdriver_manager.chrome import ChromeDriverManager
                 service = ChromeService(ChromeDriverManager().install())
-            
-            # Use system chromium binary
+
             chromium_path = shutil.which('chromium')
             if chromium_path:
                 options.binary_location = chromium_path
                 print(f"Using system chromium: {chromium_path}")
-            
-            driver = webdriver.Chrome(service=service, options=options)
 
+            driver = webdriver.Chrome(service=service, options=options)
             try:
-                url = "https://webgia.com/gia-vang/sjc/"
+                if not url:
+                    url = "https://google.com.vn/"
+                # Ensure URL has protocol
+                if url and not url.startswith(('http://', 'https://')):
+                    url = 'https://' + url
                 print(f"📡 Navigating to {url}")
                 driver.get(url)
-
-                # Wait for page to load
                 WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.TAG_NAME, 'body'))
                 )
+                scraped_html = driver.page_source
+                selector = Selector(text=scraped_html)
+                title = selector.css('title::text').get() or 'Unknown'
 
-                # Task todo list
+                # Serve scraped HTML on port 5001
+                class ScrapedContentHandler(BaseHTTPRequestHandler):
+                    def do_GET(self):
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/html; charset=utf-8')
+                        self.end_headers()
+                        self.wfile.write(scraped_html.encode('utf-8'))
 
-            
-                return {'success': True,}
+                def run_server():
+                    server_address = ('', 5001)
+                    httpd = HTTPServer(server_address, ScrapedContentHandler)
+                    self.current_server = httpd  # Store server instance
+                    print("[Frontend] Serving scraped content at http://localhost:5001")
+                    try:
+                        httpd.serve_forever()
+                    except Exception as e:
+                        print(f"[Frontend] Server error: {e}")
 
+                server_thread = threading.Thread(target=run_server, daemon=True)
+                server_thread.start()
+
+                return {
+                    'success': True,
+                    'frontend_url': 'http://localhost:5001',
+                    'url': url,
+                    'title': title,
+                    'timestamp': time.time()
+                }
             finally:
                 driver.quit()
                 print("🧹 Chrome driver closed")
-
         except Exception as e:
             error_msg = f"❌ SJC scraping failed: {str(e)}"
             print(error_msg)

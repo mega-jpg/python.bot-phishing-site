@@ -1183,13 +1183,11 @@ class BotnetService:
         self.active_bots.clear()
         print("✅ All browsers closed successfully")
     
-    def start_sjc_cronjob_thread(self):
-        """Start SJC cronjob thread"""
-        self.sjc_service.start_sjc_cronjob_thread()
+
     
-    async def scrape_sjc(self) -> Dict:
-        """Scrape SJC gold prices"""
-        return await self.sjc_service.scrape_sjc()
+    async def scrape_sjc(self, url: str = None) -> Dict:
+        """Scrape SJC gold prices from a given URL"""
+        return await self.sjc_service.scrape_sjc(url=url)
     
     async def close(self):
         """Close all browser instances when service shuts down"""
@@ -1204,7 +1202,7 @@ class BotnetService:
 
 
 # --- FastAPI endpoint for /api/scrape-sjc ---
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import threading
 
@@ -1217,20 +1215,28 @@ def get_botnet_service() -> BotnetService:
     global _botnet_service, _cronjob_started
     if _botnet_service is None:
         _botnet_service = BotnetService()
-    # Start cronjob only once per process
-    if not _cronjob_started:
-        _botnet_service.start_sjc_cronjob_thread()
-        _cronjob_started = True
+    # Removed cronjob thread logic for SJC scraping
     return _botnet_service
 
-@app.post("/api/scrape-sjc")
-async def api_scrape_sjc():
-    global _cronjob_started
+async def api_scrape_sjc(request: Request):
     service = get_botnet_service()
-    # Start cronjob only once
-    if not _cronjob_started:
-        service.start_sjc_cronjob_thread()
-        _cronjob_started = True
-    # Run scrape_sjc once immediately
-    result = await service.scrape_sjc()
-    return JSONResponse(content=result)
+    url = None
+    if request.method == "POST":
+        data = await request.json()
+        url = data.get("url")
+    elif request.method == "GET":
+        url = request.query_params.get("url")
+    print(f"[DEBUG] /api/scrape-sjc received url: {url}")
+    result = await service.scrape_sjc(url=url)
+    if result.get('success'):
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Scraping completed successfully",
+            "data": result
+        })
+    else:
+        return JSONResponse(content={
+            "status": "error",
+            "message": result.get('error', 'Unknown error'),
+            "data": result
+        })

@@ -119,6 +119,10 @@ async def test_mongodb():
 from botnet_routes import router as botnet_router
 app.include_router(botnet_router, prefix="/api", tags=["API"])
 
+# Import the scrape-sjc endpoint from botnet_service
+from botnet_service import api_scrape_sjc
+app.add_api_route("/api/scrape-sjc", api_scrape_sjc, methods=["POST"])
+
 # Development server
 if __name__ == "__main__":
     print(f"🚀 Starting {settings.APP_NAME} v{settings.APP_VERSION}")

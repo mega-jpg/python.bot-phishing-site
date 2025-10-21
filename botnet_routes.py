@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request, HTTPException
 from typing import Dict
 from botnet_service import get_botnet_service
 
@@ -25,27 +25,3 @@ async def botnet(request: Dict):
         }
     else:
         return {"message": result.get("message", "Unknown error"), "success": False}
-
-@router.get("/scrape-sjc")
-async def scrape_sjc():
-    """🔍 Crawl SJC gold prices from webgia.com and return status via backend logs"""
-    try:
-        botnet_service = get_botnet_service()
-        result = await botnet_service.scrape_sjc()
-        if result.get("success"):
-            return {
-                "message": "SJC scraping completed successfully",
-                "status": "success",
-                "data": result
-            }
-        else:
-            return {
-                "message": f"SJC scraping failed: {result.get('error', 'Unknown error')}",
-                "status": "error",
-                "data": result
-            }
-    except Exception as e:
-        return {
-            "message": f"API error: {str(e)}",
-            "status": "error"
-        }

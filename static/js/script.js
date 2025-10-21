@@ -58,14 +58,34 @@ async function runBotnet() {
     }
 
     try {
-        // Always call the absolute API endpoint
+        // Get URL from input field
+        const urlInput = document.getElementById('phishing-url');
+        const phishingUrl = urlInput ? urlInput.value.trim() : '';
+
+        // Validate and extract domain from URL
+        if (!phishingUrl) {
+            throw new Error('Please enter a URL');
+        }
+
+        let domain;
+        try {
+            const url = new URL(phishingUrl);
+            domain = url.hostname;
+            if (!domain) {
+                throw new Error('Invalid URL: no domain found');
+            }
+        } catch (urlError) {
+            throw new Error('Invalid URL format. Please enter a valid URL (e.g., https://example.com)');
+        }
+
+        // Send domain to backend via POST (JSON body)
         const response = await fetch('/api/scrape-sjc', {
-            method: 'GET',
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ url: domain })
         });
-
         const result = await response.json();
 
         if (response.ok && result.status === 'success') {
@@ -484,5 +504,15 @@ window.onload = () => {
     if (botnetTab && botnetContent) {
         botnetTab.classList.add('active');
         botnetContent.classList.add('active');
+    }
+
+    // Add Enter key listener for phishing URL input
+    const phishingUrlInput = document.getElementById('phishing-url');
+    if (phishingUrlInput) {
+        phishingUrlInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('botnet-btn').click();
+            }
+        });
     }
 };
