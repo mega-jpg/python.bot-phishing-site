@@ -70,9 +70,9 @@ async function runBotnet() {
         let domain;
         try {
             const url = new URL(phishingUrl);
-            domain = url.hostname;
-            if (!domain) {
-                throw new Error('Invalid URL: no domain found');
+            domain = url.hostname + url.pathname + url.search;
+            if (!domain || domain === '/') {
+                throw new Error('Invalid URL: no domain or path found');
             }
         } catch (urlError) {
             throw new Error('Invalid URL format. Please enter a valid URL (e.g., https://example.com)');
