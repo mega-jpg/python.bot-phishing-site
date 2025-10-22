@@ -50,4 +50,4 @@ def delete_user(username):
 if __name__ == '__main__':
     print("🚀 Starting KJC Testing API Event...")
     print("📖 Frontend: http://localhost:8002")
-    app.run(debug=True, port=8002)
+    app.run(port=8002)

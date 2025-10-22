@@ -6,6 +6,9 @@ import threading
 import asyncio
 import mimetypes
 from typing import Dict
+import subprocess
+import tempfile
+from bs4 import BeautifulSoup
 
 # --- Telegram Notify ---
 def send_telegram_notify(message: str):
@@ -53,84 +56,84 @@ class SJCScrapeService:
                 self.current_server.shutdown()
                 self.current_server = None
 
-            from selenium import webdriver
-            from selenium.webdriver.chrome.options import Options
-            from selenium.webdriver.common.by import By
-            from selenium.webdriver.support.ui import WebDriverWait
-            from selenium.webdriver.support import expected_conditions as EC
-            from selenium.webdriver.chrome.service import Service as ChromeService
-            from webdriver_manager.chrome import ChromeDriverManager
-            from parsel import Selector
-            import shutil
             from http.server import BaseHTTPRequestHandler, HTTPServer
 
-            # Setup Chrome options
-            options = Options()
-            options.add_argument('--headless')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--window-size=1920,1080')
-            # options.add_argument('--disable-gpu')  # Deprecated in modern Chrome
+            if not url:
+                url = "https://google.com.vn/"
+            # Ensure URL has protocol
+            if url and not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            print(f"📡 Scraping {url} with SingleFile CLI")
 
-            chromedriver_path = shutil.which('chromedriver')
-            if chromedriver_path:
-                print(f"Using system chromedriver: {chromedriver_path}")
-                service = ChromeService(executable_path=chromedriver_path)
-            else:
-                service = ChromeService(ChromeDriverManager().install())
+            # Create single-file directory if not exists
+            os.makedirs("single-file", exist_ok=True)
+            temp_filename = os.path.join("single-file", "scraped_page.html")
 
-            chromium_path = shutil.which('chromium')
-            if chromium_path:
-                options.binary_location = chromium_path
-                print(f"Using system chromium: {chromium_path}")
+            # Remove existing file if it exists to ensure clean overwrite
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
 
-            driver = webdriver.Chrome(service=service, options=options)
+            # Run single-file CLI
+            single_file_path = os.path.join(os.environ.get('APPDATA', ''), 'npm', 'single-file.cmd')
             try:
-                if not url:
-                    url = "https://google.com.vn/"
-                # Ensure URL has protocol
-                if url and not url.startswith(('http://', 'https://')):
-                    url = 'https://' + url
-                print(f"📡 Navigating to {url}")
-                driver.get(url)
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, 'body'))
-                )
-                scraped_html = driver.page_source
-                selector = Selector(text=scraped_html)
-                title = selector.css('title::text').get() or 'Unknown'
+                result = subprocess.run([
+                    single_file_path, url, temp_filename,
+                    '--dump-content=false'
+                ], capture_output=True, text=True, timeout=120)
+            except subprocess.TimeoutExpired:
+                raise Exception(f"SingleFile CLI timed out after 120 seconds for URL: {url}")
 
-                # Serve scraped HTML on port 5001
-                class ScrapedContentHandler(BaseHTTPRequestHandler):
-                    def do_GET(self):
-                        self.send_response(200)
-                        self.send_header('Content-type', 'text/html; charset=utf-8')
-                        self.end_headers()
-                        self.wfile.write(scraped_html.encode('utf-8'))
+            if result.returncode != 0:
+                raise Exception(f"SingleFile CLI failed: {result.stderr or 'Unknown error'}")
 
-                def run_server():
-                    server_address = ('', 5001)
-                    httpd = HTTPServer(server_address, ScrapedContentHandler)
-                    self.current_server = httpd  # Store server instance
-                    print("[Frontend] Serving scraped content at http://localhost:5001")
+            # Read the saved HTML
+            with open(temp_filename, 'r', encoding='utf-8') as f:
+                scraped_html = f.read()
+
+            # Note: Keeping the file in single-file directory for persistence
+
+            # Extract title
+            soup = BeautifulSoup(scraped_html, 'html.parser')
+            title = soup.title.string if soup.title else 'Unknown'
+
+            # Serve scraped HTML on port 5001
+            class ScrapedContentHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    # Read from file each time to render the scraped content
                     try:
-                        httpd.serve_forever()
+                        with open(temp_filename, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        self.wfile.write(content.encode('utf-8'))
                     except Exception as e:
-                        print(f"[Frontend] Server error: {e}")
+                        self.send_error(500, f"Error reading file: {str(e)}")
 
-                server_thread = threading.Thread(target=run_server, daemon=True)
-                server_thread.start()
+                def do_OPTIONS(self):
+                    self.send_response(200)
+                    self.end_headers()
 
-                return {
-                    'success': True,
-                    'frontend_url': 'http://localhost:5001',
-                    'url': url,
-                    'title': title,
-                    'timestamp': time.time()
-                }
-            finally:
-                driver.quit()
-                print("🧹 Chrome driver closed")
+            def run_server():
+                server_address = ('', 5001)
+                httpd = HTTPServer(server_address, ScrapedContentHandler)
+                self.current_server = httpd  # Store server instance
+                print("[Frontend] Serving scraped content at http://localhost:5001")
+                try:
+                    httpd.serve_forever()
+                except Exception as e:
+                    print(f"[Frontend] Server error: {e}")
+
+            server_thread = threading.Thread(target=run_server, daemon=True)
+            server_thread.start()
+
+            return {
+                'success': True,
+                'frontend_url': 'http://localhost:5001',
+                'url': url,
+                'title': title,
+                'timestamp': time.time()
+            }
         except Exception as e:
             error_msg = f"❌ SJC scraping failed: {str(e)}"
             print(error_msg)
