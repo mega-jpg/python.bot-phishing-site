@@ -90,34 +90,9 @@ async function runBotnet() {
 
         if (response.ok && result.status === 'success') {
             // Display successful scraping results
-            let message = `✅ SJC Price Scraping Completed!<br>`;
+            let message = `✅ Scraping Completed!<br>`;
             message += `🔍 Source: ${result.data.url}<br>`;
             message += `📄 Title: ${result.data.title}<br>`;
-            message += `💰 Prices Found: ${result.data.prices_found}<br>`;
-
-            if (result.data.prices && result.data.prices.length > 0) {
-                message += `<br>📊 Price Details:<br>`;
-                result.data.prices.slice(0, 5).forEach((price, index) => {
-                    message += `💰 ${index + 1}. ${price.price} - ${price.context}<br>`;
-                });
-
-                if (result.data.prices.length > 5) {
-                    message += `... and ${result.data.prices.length - 5} more prices<br>`;
-                }
-            }
-
-
-            // Hiển thị giá trị đặc biệt nếu có (Mua/Bán)
-            if (result.data.sjc_05_1_2_chi_mua || result.data.sjc_05_1_2_chi_ban) {
-                message += `<br>💡 <b>Vàng SJC 0.5 chỉ, 1 chỉ, 2 chỉ:</b><br>`;
-                if (result.data.sjc_05_1_2_chi_mua) {
-                    message += `Mua: <span style="color:#007bff">${result.data.sjc_05_1_2_chi_mua}</span><br>`;
-                }
-                if (result.data.sjc_05_1_2_chi_ban) {
-                    message += `Bán: <span style="color:#dc3545">${result.data.sjc_05_1_2_chi_ban}</span>`;
-                }
-            }
-
             message += `<br>⏰ Scraped at: ${new Date(result.data.timestamp * 1000).toLocaleString()}`;
 
             // Hiển thị log ở vị trí KJC Testing API
