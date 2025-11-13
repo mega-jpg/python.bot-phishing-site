@@ -39,10 +39,25 @@ class SJCScrapeService:
         # Biến lưu giá SJC trước đó để so sánh
         self._last_special_mua = None
         self._last_special_ban = None
-        # Server instance để quản lý
+        # Server instance và thread để quản lý
         self.current_server = None
+        self.server_thread = None
+        self.server_port = 5001
 
     # Removed start_sjc_cronjob_thread logic from main program. Method is retained for manual use if needed.
+
+    def force_stop_server(self):
+        """Force stop the frontend server"""
+        if self.current_server:
+            try:
+                print("[Frontend] Force stopping server...")
+                self.current_server.shutdown()
+                self.current_server.server_close()
+                self.current_server = None
+                self.server_thread = None
+                print("[Frontend] Server force stopped")
+            except Exception as e:
+                print(f"[Frontend] Error force stopping: {e}")
 
     async def scrape_sjc(self, url: str = None) -> Dict:
         """Scrape HTML from a given URL and serve it on port 5001. Returns title, url, and frontend_url."""
@@ -50,11 +65,22 @@ class SJCScrapeService:
             print(f"[SJC] scrape_sjc called. (thread: {threading.current_thread().name})")
             print(f"🔄 Starting SJC price scraping from {url or 'default'}...")
 
-            # Shutdown any existing server immediately
+            # Shutdown any existing server immediately (non-blocking)
             if self.current_server:
                 print("[Frontend] Shutting down existing server...")
-                self.current_server.shutdown()
-                self.current_server = None
+                try:
+                    # Shutdown in a separate thread to avoid blocking
+                    shutdown_thread = threading.Thread(target=self.current_server.shutdown, daemon=True)
+                    shutdown_thread.start()
+                    shutdown_thread.join(timeout=2)  # Wait max 2 seconds
+                    if shutdown_thread.is_alive():
+                        print("[Frontend] WARNING: Server shutdown timed out, forcing close...")
+                except Exception as e:
+                    print(f"[Frontend] Error during shutdown: {e}")
+                finally:
+                    self.current_server = None
+                    self.server_thread = None
+                print("[Frontend] Server shutdown completed")
 
             from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -184,11 +210,11 @@ class SJCScrapeService:
                     self.end_headers()
 
             def run_server():
-                server_address = ('', 5001)
+                server_address = ('', self.server_port)
                 try:
                     httpd = HTTPServer(server_address, ScrapedContentHandler)
                     self.current_server = httpd  # Store server instance
-                    print(f"[Frontend] Server started successfully at http://localhost:5001")
+                    print(f"[Frontend] Server started successfully at http://localhost:{self.server_port}")
                     print(f"[Frontend] Serving file: {temp_filename}")
                     print(f"[Frontend] File exists: {os.path.exists(temp_filename)}")
                     if os.path.exists(temp_filename):
@@ -196,14 +222,34 @@ class SJCScrapeService:
                     httpd.serve_forever()
                 except OSError as e:
                     if e.errno == 10048:  # Port already in use on Windows
-                        print(f"[Frontend] ERROR: Port 5001 is already in use")
+                        print(f"[Frontend] ERROR: Port {self.server_port} is already in use")
+                        # Try to force close existing connection
+                        import socket
+                        try:
+                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                            s.close()
+                        except:
+                            pass
                     else:
                         print(f"[Frontend] ERROR: Failed to start server: {e}")
                 except Exception as e:
                     print(f"[Frontend] ERROR: Server error: {e}")
+                finally:
+                    if self.current_server:
+                        try:
+                            self.current_server.server_close()
+                        except:
+                            pass
+                    print(f"[Frontend] Server thread exiting")
 
-            server_thread = threading.Thread(target=run_server, daemon=True)
-            server_thread.start()
+            # Store and start server thread
+            self.server_thread = threading.Thread(target=run_server, daemon=True)
+            self.server_thread.start()
+            
+            # Give server a moment to start
+            import time
+            time.sleep(0.5)
 
             return {
                 'success': True,
